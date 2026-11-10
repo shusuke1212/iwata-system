@@ -1,0 +1,967 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>IWTシステム（笑）</title><style>
+:root{color-scheme:dark;--frame:#202624;--panel:#282f2c;--line:#3c4943;--ink:#f5f1eb;--muted:#c0ccc6;--accent:#ffc39d}
+*{box-sizing:border-box}
+body{margin:0;height:100vh;height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--frame);color:var(--ink);font:14px system-ui}
+.topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 20px;padding:9px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{font-size:16px;color:var(--accent)}
+.files,.views,.input-modes,.touch-controls,.button-grid{display:flex;flex-wrap:wrap;gap:6px}
+button,select,input[type=number]{color:inherit;background:#39443f;border:1px solid #52615a;border-radius:6px;padding:6px 9px;font:inherit}
+button{cursor:pointer;min-height:32px}
+button:hover:not(:disabled){background:#46554e}
+button[aria-pressed=true],button[aria-pressed=true]:hover,.files #stl{background:var(--accent);color:#302119;border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:2px solid #9bcaff;outline-offset:2px}
+.workspace{min-height:0;display:grid;grid-template-columns:166px minmax(0,1fr) 224px;grid-template-areas:"tools stage settings"}
+.tools,.settings{overflow:auto;min-width:0;background:var(--panel);scrollbar-width:thin}
+.tools{grid-area:tools;border-right:1px solid var(--line)}
+.settings{grid-area:settings;border-left:1px solid var(--line)}
+.panel{padding:11px;border-bottom:1px solid var(--line)}
+h2{font-size:12px;letter-spacing:.08em;color:var(--muted);margin:0 0 8px}
+.button-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.button-grid button{padding-inline:3px;font-size:12px}
+#mirror{grid-column:1/-1}
+.sliders,.fields{display:grid;gap:8px;margin-top:9px}
+.sliders label,.fields label{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.sliders label{display:grid;grid-template-columns:auto 1fr 35px}
+[hidden]{display:none!important}
+input[type=range]{width:100%;min-width:0;accent-color:var(--accent)}
+.fields input[type=range]{width:80px}
+.fields input[type=number]{width:76px}
+input[type=checkbox]{accent-color:var(--accent)}
+output{font-variant-numeric:tabular-nums;color:var(--accent)}
+#stockInfo,#meshCount{font-size:12px;color:var(--muted)}
+.stage{grid-area:stage;min-width:0;min-height:0;position:relative;background:var(--frame)}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair}
+.touch-controls{position:absolute;top:8px;left:8px;right:8px;pointer-events:none}
+.touch-controls button{pointer-events:auto}
+body[data-input=tablet] button,body[data-input=tablet] select,body[data-input=tablet] input[type=number]{min-height:44px}
+body[data-input=tablet] input[type=range]{height:30px}
+body[data-input=tablet] input[type=checkbox]{width:22px;height:22px}
+body[data-touch-action=rotate] canvas{cursor:grab}
+body[data-touch-action=rotate] canvas:active{cursor:grabbing}
+footer{background:var(--panel);border-top:1px solid var(--line);padding:7px 12px;font-size:12px;color:var(--muted)}
+#status{color:var(--accent)}
+@media(max-width:800px){
+  .workspace{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) min(30vh,220px);grid-template-areas:"stage stage" "tools settings"}
+  .tools,.settings{border-top:1px solid var(--line)}
+  .topbar{gap:5px;padding:6px 8px}
+  .files button{font-size:12px}
+}
+</style></head><body>
+<header class="topbar"><strong class="brand">IWTシステム（笑）</strong><div class="input-modes" role="group" aria-label="操作モード"><button id="mouseMode" aria-pressed="true">PCマウス</button><button id="tabletMode" aria-pressed="false">タブレット</button></div><div class="files" role="group" aria-label="ファイルと履歴"><button id="undo">元に戻す</button><button id="stl">STL保存</button><button id="save">編集用保存</button><button id="open">編集用を開く</button><input id="file" type="file" accept=".json" hidden></div></header>
+<main class="workspace"><aside class="tools" aria-label="彫刻ツール"><section class="panel"><h2>ブラシ</h2><div class="button-grid"><button data-tool="1" aria-pressed="true">盛る</button><button data-tool="-1" aria-pressed="false">削る</button><button data-tool="4" aria-pressed="false" title="押し込んだ分を周囲に移し、体積を保つ">押す</button><button data-tool="5" aria-pressed="false" title="表面をつまんでドラッグ方向に動かす">引っ張る</button><button data-tool="0" aria-pressed="false">ならす</button><button id="mirror" aria-pressed="false">左右対称</button></div><div class="sliders"><label>大きさ <input id="size" type="range" min="5" max="55" value="25"><output id="sizeValue">25</output></label><label>強さ <input id="power" type="range" min="5" max="100" value="40"><output id="powerValue">40%</output></label></div></section><section class="panel"><h2>保護（マスク）</h2><div class="button-grid"><button data-tool="2" aria-pressed="false">保護する</button><button data-tool="3" aria-pressed="false">保護を消す</button><button id="invertMask">保護を反転</button><button id="clearMask">保護を全解除</button></div></section><section class="panel"><h2>形を整える</h2><button id="flat" aria-pressed="false">底を平らにする</button></section></aside><div class="stage"><canvas aria-label="彫刻の作業面"></canvas><div id="touchControls" class="touch-controls" role="group" aria-label="タブレットの作業面操作" hidden><button id="touchSculpt" aria-pressed="true">彫刻</button><button id="touchRotate" aria-pressed="false">視点操作</button><button id="zoomOut" aria-label="縮小">−</button><button id="zoomIn" aria-label="拡大">＋</button></div></div><aside class="settings" aria-label="作業設定"><section class="panel"><h2>視点・表示</h2><div class="views"><button data-view="top" aria-pressed="false">平面</button><button data-view="front" aria-pressed="false">立面</button><button data-view="side" aria-pressed="false">側面</button></div><div class="fields"><label><input id="guides" type="checkbox" checked>寸法補助線</label><label><input id="wire" type="checkbox">ワイヤーフレーム</label></div></section><section class="panel"><h2>材料</h2><div class="fields"><select id="shape" aria-label="材料形状"><option value="sphere">球</option><option value="box">角材</option><option value="rod">丸棒</option></select><label><span id="widthName">直径</span> <input id="sx" type="number" min="1" max="3000" value="50"> mm</label><label id="depth">奥行き <input id="sy" type="number" min="1" max="3000" value="50"> mm</label><label id="height"><span id="heightName">高さ</span> <input id="sz" type="number" min="1" max="3000" value="50"> mm</label><button id="applyStock">新しい材料で始める</button><span id="stockInfo"></span></div></section><section class="panel"><h2>ポリゴン</h2><div class="fields"><label>ポリゴンの細かさ <select id="meshDetail"><option value="low">粗い</option><option value="normal" selected>標準</option><option value="high">細かい</option></select></label><span id="meshCount"></span><button id="refine" aria-pressed="false">ここだけ細かくする</button><button id="rewrap" title="材料の中心から見た最外面で網目を作り直す">包み直す</button><label>全体の滑らかさ <input id="smooth" type="range" min="0" max="8" value="0"><output id="smoothValue">0</output></label></div></section></aside></main>
+<footer><span id="inputHint"></span> <span id="status" role="status"></span></footer>
+<script>
+'use strict';
+const get=id=>document.getElementById(id);
+const canvas=document.querySelector('canvas'), ctx=canvas.getContext('2d');
+const detailLevels={low:[24,48,20],normal:[40,80,32],high:[64,128,48]};
+let detail="normal",points,faces,rings,sides,bottom,neighbors;
+function buildSphere(){
+  [rings,sides]=detailLevels[detail];
+  points=[];faces=[];
+points.push([0,1,0]);
+for(let r=1;r<rings;r++){
+  const theta=Math.PI*r/rings;
+  for(let s=0;s<sides;s++){
+    const phi=2*Math.PI*s/sides;
+    points.push([Math.sin(theta)*Math.cos(phi),Math.cos(theta),Math.sin(theta)*Math.sin(phi)]);
+  }
+}
+bottom=points.length;
+points.push([0,-1,0]);
+for(let s=0;s<sides;s++){
+  const next=(s+1)%sides;
+  faces.push([0,1+next,1+s]);
+  for(let r=0;r<rings-2;r++){
+    const a=1+r*sides+s,b=1+r*sides+next;
+    faces.push([a,b,b+sides],[a,b+sides,a+sides]);
+  }
+  faces.push([bottom,bottom-sides+s,bottom-sides+next]);
+}
+neighbors=points.map(()=>new Set());
+for(const face of faces)for(const a of face)for(const b of face)if(a!==b)neighbors[a].add(b);
+}
+buildSphere();
+let heights=points.map(()=>1), view=[], visible=[], history=[], tool=1;
+let mask=points.map(()=>0), mirror=false, floor=null;
+
+const defaultStock={shape:'sphere',x:50,y:50,z:50};
+let hole=null,holeMesh=null,voxelMesh=null,refineMode=false;
+let pockets=[];
+let stock=defaultStock, smoothing=0, viewMode="front";
+const emptyOffsets=()=>Array.from({length:3},()=>points.map(()=>0));
+let offsets=emptyOffsets(), surface=null, surfaceOffsets=null;
+function soften(values,passes,amount){
+  for(let pass=0;pass<passes;pass++){
+    const before=values;
+    values=before.map((value,i)=>{
+      let sum=0;
+      for(const j of neighbors[i])sum+=before[j];
+      return value+(sum/neighbors[i].size-value)*amount*(1-mask[i]);
+    });
+  }
+  return values;
+}
+function refreshSurface(){
+  surface=soften(heights,smoothing,0.6);
+  surfaceOffsets=offsets.map(values=>soften(values,smoothing,0.6));
+}
+function stockVertex(i){
+  const [x,y,z]=points[i];
+  let r=1;
+  if(stock.shape==='box')r=1/Math.max(Math.abs(x),Math.abs(y),Math.abs(z));
+  if(stock.shape==='rod')r=1/Math.max(Math.abs(y),Math.hypot(x,z));
+  return [x*r*stock.x/2,y*r*stock.z/2,z*r*stock.y/2];
+}
+let boxPoints,boxFaces,boxDirections,boxSamples;
+function buildBox(){
+  boxPoints=[];boxFaces=[];
+  const boxIndex=new Map(), divisions=detailLevels[detail][2];
+for(let axis=0;axis<3;axis++)for(const sign of [-1,1]){
+  const grid=[],u=(axis+1)%3,v=(axis+2)%3;
+  for(let row=0;row<=divisions;row++)for(let col=0;col<=divisions;col++){
+    const p=[0,0,0];
+    p[axis]=sign*divisions;p[u]=2*col-divisions;p[v]=2*row-divisions;
+    const key=p.join(',');
+    if(!boxIndex.has(key)){
+      boxIndex.set(key,boxPoints.length);
+      boxPoints.push(p.map(n=>n/divisions));
+    }
+    grid.push(boxIndex.get(key));
+  }
+  for(let row=0;row<divisions;row++)for(let col=0;col<divisions;col++){
+    const i=row*(divisions+1)+col;
+    const a=grid[i],b=grid[i+1],c=grid[i+divisions+2],d=grid[i+divisions+1];
+    if(sign>0)boxFaces.push([a,b,c],[a,c,d]);
+    else boxFaces.push([a,c,b],[a,d,c]);
+  }
+}
+boxDirections=boxPoints.map(p=>p.map(n=>n/Math.hypot(...p)));
+  boxSamples=boxDirections.map(point=>sampleWeights(point));
+}
+function sampleWeights([x,y,z],ringCount=rings,sideCount=sides,pole=bottom){
+  const row=Math.acos(y)*ringCount/Math.PI,col=(Math.atan2(z,x)*sideCount/(2*Math.PI)+sideCount)%sideCount;
+  const r=Math.floor(row),s=Math.floor(col),u=row-r,v=col-s;
+  const index=(j,k)=>j<=0?0:j>=ringCount?pole:1+(j-1)*sideCount+k%sideCount;
+  return [[index(r,s),(1-u)*(1-v)],[index(r,s+1),(1-u)*v],[index(r+1,s),u*(1-v)],[index(r+1,s+1),u*v]];
+}
+buildBox();
+function setDetail(level){
+  if(level===detail)return;
+  detail=level;buildSphere();buildBox();
+}
+function activeFaces(){return voxelMesh?voxelMesh.faces:holeMesh?holeMesh.faces:stock.shape==='box'?boxFaces:faces}
+function activeDirections(){return voxelMesh?voxelMesh.vertices:holeMesh?holeMesh.vertices:stock.shape==='box'?boxDirections:points}
+function sample(values,i){
+  if(stock.shape!=='box')return values[i];
+  const weights=boxSamples[i], base=values[weights[0][0]];
+  return weights.reduce((sum,[j,w])=>sum+(values[j]-base)*w,base);
+}
+function modelVertex(i,withPockets=true){
+  if(voxelMesh)return voxelMesh.vertices[i];
+  if(holeMesh)return holeMesh.vertices[i];
+  const [x,y,z]=stock.shape==='box'?
+    boxPoints[i].map((n,k)=>n*[stock.x,stock.z,stock.y][k]/2):stockVertex(i);
+  const h=sample(surface,i);
+  const horizontal=x*h+sample(surfaceOffsets[0],i);
+  let vertical=y*h+sample(surfaceOffsets[1],i);
+  const depth=z*h+sample(surfaceOffsets[2],i);
+  if(withPockets&&stock.shape==='box'&&boxPoints[i][1]===1){
+    for(const pocket of pockets){
+      const distance=Math.hypot(horizontal-pocket.x,depth-pocket.z);
+      if(distance<pocket.radius){
+        const edge=Math.min(1,(1-distance/pocket.radius)*4);
+        vertical-=pocket.depth*edge*edge*(3-2*edge);
+      }
+    }
+  }
+  return [horizontal,floor===null?vertical:Math.max(vertical,floor*stock.z/2),depth];
+}
+let yaw=0,pitch=0,zoom=1,stroke,scale,cx,cy;
+let cursor=null,pending=false;
+function draw(){
+  refreshSurface();
+  const width=canvas.clientWidth,height=canvas.clientHeight;
+  const ratio=Math.min(2,devicePixelRatio);
+  const pixelWidth=Math.round(width*ratio),pixelHeight=Math.round(height*ratio);
+  if(canvas.width!==pixelWidth||canvas.height!==pixelHeight){canvas.width=pixelWidth;canvas.height=pixelHeight}
+  ctx.setTransform(ratio,0,0,ratio,0,0);
+  ctx.fillStyle='#202624';ctx.fillRect(0,0,width,height);
+  scale=Math.min(width,height)*0.35*zoom;cx=width/2;cy=height/2;
+  const a=Math.cos(yaw),b=Math.sin(yaw),c=Math.cos(pitch),d=Math.sin(pitch);
+  const half=Math.max(stock.x,stock.y,stock.z)/2;
+  view=activeDirections().map((_,i)=>{
+    const [x,y,z]=modelVertex(i).map(value=>value/half);
+    const u=a*x+b*z,w=-b*x+a*z;
+    return [u,c*y-d*w,d*y+c*w];
+  });
+  visible=[];
+  for(const face of activeFaces()){
+    const [p,q,r]=face.map(i=>view[i]);
+    const ux=q[0]-p[0],uy=q[1]-p[1],uz=q[2]-p[2];
+    const vx=r[0]-p[0],vy=r[1]-p[1],vz=r[2]-p[2];
+    const nz=ux*vy-uy*vx;
+    if(nz<=0)continue;
+    const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz;
+    const light=Math.max(0,(-0.36*nx+0.52*ny+0.77*nz)/Math.hypot(nx,ny,nz));
+    visible.push({face,p,q,r,z:p[2]+q[2]+r[2],shade:0.42+0.58*light, protection:face.reduce((sum,i)=>sum+(voxelMesh?.editable?(voxelMesh.mask[i]??0):holeMesh||voxelMesh?0:sample(mask,i)),0)/3});
+  }
+  visible.sort((a,b)=>a.z-b.z);
+  ctx.lineWidth=0.65;
+  for(const {p,q,r,shade,protection} of visible){
+    ctx.fillStyle=ctx.strokeStyle='rgb('+Math.round((236-140*protection)*shade)+','+Math.round((151+12*protection)*shade)+','+Math.round((113+105*protection)*shade)+')';
+    ctx.beginPath();ctx.moveTo(cx+p[0]*scale,cy-p[1]*scale);
+    ctx.lineTo(cx+q[0]*scale,cy-q[1]*scale);ctx.lineTo(cx+r[0]*scale,cy-r[1]*scale);
+    ctx.closePath();ctx.fill();
+    if(get("wire").checked)ctx.strokeStyle="#293631";
+    ctx.stroke();
+  }
+  if(viewMode&&get("guides").checked)drawGuides(width,height,half);
+  drawOrientation(width,a,b,c,d);
+  if(cursor&&(!stroke||stroke.sculpt)){
+    ctx.beginPath();ctx.arc(cursor.x,cursor.y,scale*Number(get('size').value)/100,0,Math.PI*2);
+    ctx.lineWidth=1;ctx.strokeStyle='#ffead0';ctx.stroke();
+    if(mirror&&!holeMesh&&(!voxelMesh||voxelMesh.editable))drawMirrorCursor(a,b,c,d,half);
+  }
+}
+function drawMirrorCursor(a,b,c,d,half){
+  const hit=pick(cursor.x,cursor.y);
+  if(!hit)return;
+  const screenX=(cursor.x-cx)/scale, screenY=(cy-cursor.y)/scale;
+  const depth=hit.depth/half;
+  const worldX=a*screenX+d*b*screenY-c*b*depth;
+  const x=cursor.x-2*worldX*a*scale, y=cursor.y+2*worldX*d*b*scale;
+  if(Math.hypot(x-cursor.x,y-cursor.y)<2)return;
+  ctx.save();
+  ctx.setLineDash([4,3]);ctx.strokeStyle='#8de9ff';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.arc(x,y,scale*Number(get('size').value)/100,0,Math.PI*2);ctx.stroke();
+  ctx.restore();
+}
+function drawOrientation(width,a,b,c,d){
+  const axes=[
+    {name:'右',opposite:'左',color:'#ff9696',x:a,y:d*b,z:-c*b},
+    {name:'上',opposite:'下',color:'#a7e79d',x:0,y:c,z:d},
+    {name:'前',opposite:'後',color:'#9dcaff',x:b,y:-d*a,z:c*a}
+  ];
+  const facing=axes.reduce((best,axis)=>Math.abs(axis.z)>Math.abs(best.z)?axis:best);
+  const label=(facing.z<0?facing.opposite:facing.name)+'側から';
+  const left=Math.max(0,width-122),x=left+61,y=56;
+  ctx.save();
+  ctx.fillStyle='rgba(26,32,30,0.88)';ctx.fillRect(left+4,8,112,108);
+  ctx.font='12px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+  for(const axis of axes.sort((first,second)=>first.z-second.z)){
+    const endX=x+axis.x*28,endY=y-axis.y*28;
+    if(Math.hypot(axis.x,axis.y)<0.18)continue;
+    ctx.strokeStyle=ctx.fillStyle=axis.color;ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(endX,endY);ctx.stroke();
+    const length=Math.hypot(axis.x,axis.y);
+    ctx.fillText(axis.name,endX+axis.x/length*10,endY-axis.y/length*10);
+  }
+  ctx.fillStyle='#f0f4ef';ctx.beginPath();ctx.arc(x,y,2.5,0,2*Math.PI);ctx.fill();
+  ctx.fillText(label,x,101);ctx.restore();
+}
+function drawGuides(width,height,half){
+  const axes={front:['幅','高さ'],top:['幅','奥行き'],side:['奥行き','高さ']}[viewMode];
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const [x,y] of view){
+    minX=Math.min(minX,x);maxX=Math.max(maxX,x);
+    minY=Math.min(minY,y);maxY=Math.max(maxY,y);
+  }
+  const left=cx+minX*scale,right=cx+maxX*scale,top=cy-maxY*scale,bottom=cy-minY*scale;
+  const lineY=Math.min(height-25,bottom+21),lineX=Math.min(width-16,right+24);
+  ctx.lineWidth=1;ctx.strokeStyle='#acc9c0';ctx.fillStyle='#e5f3ee';ctx.font='13px system-ui';
+  ctx.beginPath();
+  for(const x of [left,right]){ctx.moveTo(x,bottom);ctx.lineTo(x,lineY+5)}
+  ctx.moveTo(left,lineY);ctx.lineTo(right,lineY);
+  for(const y of [top,bottom]){ctx.moveTo(right,y);ctx.lineTo(lineX+5,y)}
+  ctx.moveTo(lineX,top);ctx.lineTo(lineX,bottom);ctx.stroke();
+  const fmt=n=>Number(n.toFixed(2))+' mm';
+  ctx.textAlign='center';
+  ctx.fillText(axes[0]+' '+fmt((maxX-minX)*half),(left+right)/2,lineY+17);
+  ctx.save();ctx.translate(lineX+12,(top+bottom)/2);ctx.rotate(-Math.PI/2);
+  ctx.fillText(axes[1]+' '+fmt((maxY-minY)*half),0,0);ctx.restore();
+}
+function redraw(){
+  if(pending)return;
+  pending=true;
+  requestAnimationFrame(()=>{pending=false;draw()});
+}
+function pick(x,y){
+  x=(x-cx)/scale;y=(cy-y)/scale;
+  let best=-Infinity,hit=null;
+  for(const {p,q,r,face} of visible){
+    const ux=q[0]-p[0],uy=q[1]-p[1],vx=r[0]-p[0],vy=r[1]-p[1];
+    const dx=x-p[0],dy=y-p[1],det=ux*vy-uy*vx;
+    const u=(dx*vy-dy*vx)/det,v=(ux*dy-uy*dx)/det;
+    if(u<0||v<0||u+v>1)continue;
+    const w=1-u-v,z=w*p[2]+u*q[2]+v*r[2];
+    if(z<=best)continue;
+    best=z;
+    const directions=activeDirections();
+    hit=directions[face[0]].map((value,k)=>w*value+u*directions[face[1]][k]+v*directions[face[2]][k]);
+    hit.face=face;
+  }
+  if(hit){
+    const half=Math.max(stock.x,stock.y,stock.z)/2;
+    const a=Math.cos(yaw),b=Math.sin(yaw),c=Math.cos(pitch),d=Math.sin(pitch);
+    hit.depth=best*half;
+    hit.world=[a*x+d*b*y-c*b*best,c*y+d*best,b*x-d*a*y+c*a*best].map(value=>value*half);
+  }
+  return hit;
+}
+function remember(){history.push({heights:heights.slice(),mask:mask.slice(),floor,stock,smoothing,offsets:offsets.map(axis=>axis.slice()),hole,pockets,detail,voxelMesh});if(history.length>30)history.shift()}
+function meshVolume(){
+  refreshSurface();
+  const vertices=activeDirections().map((_,i)=>modelVertex(i));
+  let volume=0;
+  for(const [i,j,k] of activeFaces()){
+    const [x,y,z]=vertices[i], [a,b,c]=vertices[j], [d,e,f]=vertices[k];
+    volume+=x*(b*f-c*e)+y*(c*d-a*f)+z*(a*e-b*d);
+  }
+  return volume/6;
+}
+function balancePress(previous,volume,rim,maxRise){
+  const pressed=offsets.map(axis=>axis.slice());
+  const tolerance=Math.max(1e-7,Math.abs(volume)*1e-10);
+  for(let fraction=1;fraction>=1/32;fraction/=2){
+    offsets=pressed.map((values,axis)=>values.map((value,i)=>
+      previous[axis][i]+(value-previous[axis][i])*fraction));
+    const base=offsets.map(axis=>axis.slice());
+    function apply(amount){
+      for(const {i,weight,vector} of rim)for(let axis=0;axis<3;axis++)
+        offsets[axis][i]=base[axis][i]+amount*weight*vector[axis];
+      return meshVolume()-volume;
+    }
+    const initial=apply(0);
+    if(Math.abs(initial)<=tolerance)return;
+    if(initial>0||!rim.length)continue;
+    let amount=maxRise/2;
+    for(let attempt=0;attempt<8;attempt++){
+      const residual=apply(amount);
+      if(Math.abs(residual)<=tolerance)return;
+      const slope=(residual-initial)/amount;
+      if(!Number.isFinite(slope)||slope<=0)break;
+      amount=-initial/slope;
+      if(!Number.isFinite(amount)||amount<=0||amount>maxRise)break;
+    }
+  }
+  offsets=previous;
+  status('周囲に形を移せる範囲が足りないため、この位置では押せません。');
+}
+function rodAxis([x,y,z]){
+  const radial=Math.hypot(x,z);
+  if(Math.abs(y)>=radial)return [0,Math.sign(y),0];
+  return [x/radial,0,z/radial];
+}
+function brush(hit,pressure){
+  if(voxelMesh?.editable){brushLocal(hit,pressure);return}
+  const radius=Number(get('size').value)/100;
+  const strength=(5+(Number(get('power').value)-5)*35/95)/100*pressure;
+  const before=tool===0?heights.slice():heights;
+  const oldOffsets=tool===0?offsets.map(axis=>axis.slice()):null;
+  const direction=viewMode==='top'?[0,1,0]:viewMode==='front'?[0,0,1]:viewMode==='side'?[-1,0,0]:
+    [-Math.cos(pitch)*Math.sin(yaw),Math.sin(pitch),Math.cos(pitch)*Math.cos(yaw)];
+  const amplitude=Math.max(stock.x,stock.y,stock.z)/2*radius*0.35;
+  const pressPlane=tool===4?(stroke?.pressPlane??hit.depth-amplitude*strength):null;
+  if(tool===4&&stroke)stroke.pressPlane=pressPlane;
+  const previous=tool===4?offsets.map(axis=>axis.slice()):null;
+  const volume=tool===4?meshVolume():0, rim=[];
+  points.forEach(([x,y,z],i)=>{
+    const direct=Math.hypot(x-hit[0],y-hit[1],z-hit[2]);
+    const reflected=mirror?Math.hypot(x+hit[0],y-hit[1],z-hit[2]):Infinity;
+    const distance=Math.min(direct,reflected);
+    const viewAxis=direction.map((value,axis)=>axis===0&&reflected<direct?-value:value);
+    const radial=stock.shape==='sphere';
+    const vector=radial?[x,y,z]:stock.shape==='rod'?rodAxis([x,y,z]):viewAxis;
+    if(tool===4&&distance>=radius&&distance<radius*2.6&&mask[i]<1){
+
+      if(x*viewAxis[0]+y*viewAxis[1]+z*viewAxis[2]>0){
+        const t=(distance/radius-1)/1.6;
+        rim.push({i,weight:Math.sin(Math.PI*t)**2*(1-mask[i]),vector});
+      }
+    }
+    if(distance>=radius)return;
+    const t=1-distance/radius,weight=t*t*(3-2*t)*strength;
+    if(tool===2||tool===3){
+      mask[i]=Math.min(1,Math.max(0,mask[i]+(tool===2?weight:-weight)));
+      return;
+    }
+    const influence=weight*(1-mask[i]);
+    if(tool!==0){
+      let movement=amplitude*tool*influence;
+      if(tool===4){
+        const faceDirection=[x,y,z];
+        const sameSide=faceDirection.reduce((sum,value,axis)=>
+          sum+value*viewAxis[axis],0);
+        if(sameSide<=0)return;
+        const base=stockVertex(i);
+        const depth=base.reduce((sum,value,axis)=>sum+
+          (value*heights[i]+offsets[axis][i])*viewAxis[axis],0);
+        movement=-Math.max(0,depth-pressPlane)*Math.min(1,influence);
+      }
+      for(let axis=0;axis<3;axis++){
+        const delta=movement*vector[axis];
+        const current=offsets[axis][i];
+        if((tool===-1||tool===4)&&stock.shape==='box'&&delta!==0){
+          const span=[stock.x,stock.z,stock.y][axis];
+          const limit=span*0.45;
+          offsets[axis][i]=delta<0?Math.max(Math.min(current,-limit),current+delta):
+            Math.min(Math.max(current,limit),current+delta);
+        }else offsets[axis][i]+=delta;
+      }
+      return;
+    }
+    const nearby=neighbors[i];
+    const average=values=>{
+      let sum=0;
+      for(const j of nearby)sum+=values[j];
+      return sum/nearby.size;
+    };
+    const blend=Math.min(1,influence);
+    heights[i]+=(average(before)-before[i])*blend;
+    for(let axis=0;axis<3;axis++){
+      const values=oldOffsets[axis];
+      offsets[axis][i]+=(average(values)-values[i])*blend;
+    }
+  });
+  if(tool===4)balancePress(previous,volume,rim,amplitude*0.65);
+}
+function pointer(event){
+  const rect=canvas.getBoundingClientRect();
+  return {x:event.clientX-rect.left,y:event.clientY-rect.top};
+}
+function pressure(event){return event.pointerType==='pen'?(event.pressure||0.5):1}
+function startPull(hit){
+  const half=Math.max(stock.x,stock.y,stock.z)/2;
+  const radius=half*Number(get('size').value)/100;
+  const local=voxelMesh?.editable;
+  const vertices=local?voxelMesh.vertices:points.map((_,i)=>stockVertex(i).map((v,k)=>v*heights[i]+offsets[k][i]));
+  const protection=local?voxelMesh.mask:mask;
+  const selected=[];
+  for(let i=0;i<vertices.length;i++){
+    const [x,y,z]=vertices[i];
+    const direct=Math.hypot(x-hit.world[0],y-hit.world[1],z-hit.world[2]);
+    const reflected=mirror?Math.hypot(x+hit.world[0],y-hit.world[1],z-hit.world[2]):Infinity;
+    const t=1-Math.min(direct,reflected)/radius;
+    if(t>0&&protection[i]<1)selected.push({i,sign:reflected<direct?-1:1,
+      weight:t*t*(3-2*t)*(1-protection[i]),base:local?vertices[i].slice():offsets.map(axis=>axis[i])});
+  }
+  return {selected,local,units:half/scale,started:false};
+}
+function movePull(dx,dy){
+  const pull=stroke.pull;
+  if(!pull.selected.length||(!pull.started&&dx===0&&dy===0))return;
+  if(!pull.started){
+    remember();if(pull.local)copyLocal();pull.started=true;
+  }
+  const a=Math.cos(yaw),b=Math.sin(yaw),c=Math.cos(pitch),d=Math.sin(pitch);
+  const shift=[a*dx-d*b*dy,-c*dy,b*dx+d*a*dy];
+  for(const {i,sign,weight,base} of pull.selected){
+    const next=base.map((v,k)=>v+shift[k]*pull.units*weight*(k===0?sign:1));
+    if(pull.local)voxelMesh.vertices[i]=next;
+    else for(let k=0;k<3;k++)offsets[k][i]=next[k];
+  }
+}
+let inputMode, touchAction='sculpt';
+const navigationTouches=new Map();
+
+function syncInput(){
+  const tablet=inputMode==='tablet';
+  document.body.dataset.input=inputMode;
+  document.body.dataset.touchAction=tablet?touchAction:'sculpt';
+  get('mouseMode').setAttribute('aria-pressed',String(!tablet));
+  get('tabletMode').setAttribute('aria-pressed',String(tablet));
+  get('touchControls').hidden=!tablet;
+  get('touchSculpt').setAttribute('aria-pressed',String(touchAction==='sculpt'));
+  get('touchRotate').setAttribute('aria-pressed',String(touchAction==='rotate'));
+  get('inputHint').textContent=tablet
+    ? '彫刻：指・ペンでなぞる ／ 視点操作：1本指で回転、2本指で拡大・縮小'
+    : '左ドラッグで彫刻 ／ 右ドラッグまたは空白をドラッグで回転 ／ ホイールで拡大・縮小';
+}
+function resetInputGesture(){
+  const ids=[...navigationTouches.keys()];
+  if(stroke)ids.push(stroke.id);
+  stroke=null;
+  cursor=null;
+  navigationTouches.clear();
+  for(const id of ids)if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
+}
+function setInputMode(mode){
+  resetInputGesture();
+  inputMode=mode;
+  syncInput();
+  try{localStorage.setItem('iwtInputMode',mode)}catch{}
+  redraw();
+}
+function setTouchAction(action){
+  resetInputGesture();
+  touchAction=action;
+  syncInput();
+  redraw();
+}
+function changeZoom(factor){
+  zoom=Math.max(0.35,Math.min(3,zoom*factor));
+  redraw();
+}
+function rotateView(dx,dy){
+  yaw+=dx*0.009;pitch+=dy*0.009;viewMode=null;syncView();
+}
+get('mouseMode').onclick=()=>setInputMode('mouse');
+get('tabletMode').onclick=()=>setInputMode('tablet');
+get('touchSculpt').onclick=()=>setTouchAction('sculpt');
+get('touchRotate').onclick=()=>setTouchAction('rotate');
+get('zoomOut').onclick=()=>changeZoom(1/1.2);
+get('zoomIn').onclick=()=>changeZoom(1.2);
+
+canvas.onpointerdown=event=>{
+  const touch=event.pointerType==='touch';
+  const tablet=inputMode==='tablet';
+  const rotating=tablet&&touchAction==='rotate';
+  if(stroke||![0,2].includes(event.button)||(touch&&!tablet))return;
+  if(touch&&rotating){
+    if(navigationTouches.size>=2)return;
+    navigationTouches.set(event.pointerId,pointer(event));
+    canvas.setPointerCapture(event.pointerId);
+    cursor=null;
+    redraw();
+    return;
+  }
+  if(navigationTouches.size||(touch&&!event.isPrimary))return;
+  cursor=pointer(event);
+  const hit=event.button===0&&!rotating?pick(cursor.x,cursor.y):null;
+  if(refineMode&&hit){refineAt(hit);return}
+  if(hit&&voxelMesh&&!voxelMesh.editable){status("ブラシ編集に戻るには元に戻してください。");return}
+  if(hit&&hole){status("貫通穴のある旧作品は表示とSTL保存ができます。");return}
+  stroke={...cursor,id:event.pointerId,sculpt:!!hit};
+  canvas.setPointerCapture(event.pointerId);
+  if(hit&&tool===5)stroke.pull=startPull(hit);
+  else if(hit){remember();if(voxelMesh?.editable)copyLocal();brush(hit,pressure(event))}
+  redraw();
+};
+canvas.onpointermove=event=>{
+  if(navigationTouches.has(event.pointerId)){
+    const previous=navigationTouches.get(event.pointerId), next=pointer(event);
+    const other=[...navigationTouches.entries()].find(([id])=>id!==event.pointerId)?.[1];
+    navigationTouches.set(event.pointerId,next);
+    if(other){
+      const before=Math.hypot(previous.x-other.x,previous.y-other.y);
+      const after=Math.hypot(next.x-other.x,next.y-other.y);
+      changeZoom(Math.max(1,after)/Math.max(1,before));
+    }else{
+      rotateView(next.x-previous.x,next.y-previous.y);
+      redraw();
+    }
+    return;
+  }
+  if(navigationTouches.size||(stroke&&stroke.id!==event.pointerId)||
+      (event.pointerType==='touch'&&!stroke))return;
+  if(!stroke&&inputMode==='tablet'&&touchAction==='rotate')return;
+  cursor=pointer(event);
+  redraw();
+  if(!stroke||event.pointerId!==stroke.id)return;
+  const dx=cursor.x-stroke.x,dy=cursor.y-stroke.y;
+  if(stroke.pull){movePull(dx,dy);return}
+  if(stroke.sculpt){
+    const spacing=Math.max(2,scale*Number(get('size').value)/450);
+    const steps=Math.min(24,Math.floor(Math.hypot(dx,dy)/spacing));
+    if(!steps)return;
+    for(let i=1;i<=steps;i++){
+      const hit=pick(stroke.x+dx*i/steps,stroke.y+dy*i/steps);
+      if(hit)brush(hit,pressure(event));
+    }
+  }else{
+    rotateView(dx,dy);
+  }
+  Object.assign(stroke,cursor);
+};
+function endPointer(event){
+  if(navigationTouches.delete(event.pointerId)){redraw();return}
+  if(stroke?.id===event.pointerId){
+    stroke=null;
+    if(event.pointerType!=='mouse')cursor=null;
+    redraw();
+  }else if(event.pointerType==='touch'&&!stroke&&cursor){
+    cursor=null;redraw();
+  }
+}
+canvas.onpointerup=endPointer;
+canvas.onpointercancel=endPointer;
+canvas.onlostpointercapture=endPointer;
+canvas.onpointerleave=event=>{
+  if(stroke&&stroke.id!==event.pointerId)return;
+  cursor=null;redraw();
+};
+canvas.oncontextmenu=event=>event.preventDefault();
+canvas.addEventListener('wheel',event=>{
+  event.preventDefault();
+  changeZoom(Math.exp(-event.deltaY*0.001));
+},{passive:false});
+const buttons=document.querySelectorAll('[data-tool]');
+for(const button of buttons)button.onclick=()=>{
+  if(inputMode==='tablet'&&touchAction==='rotate')setTouchAction('sculpt');
+  tool=Number(button.dataset.tool);
+  if(tool===4)status('押す位置をクリック、またはドラッグします。へこんだ分が周囲に盛り上がります。');
+  for(const other of buttons)other.setAttribute('aria-pressed',String(other===button));
+};
+const status=message=>{get('status').textContent=message};
+function syncFloor(){get('flat').setAttribute('aria-pressed',String(floor!==null))}
+get('mirror').onclick=()=>{
+  mirror=!mirror;
+  get('mirror').setAttribute('aria-pressed',String(mirror));
+  redraw();
+};
+get('flat').onclick=()=>{
+  if(stroke||hole||voxelMesh)return;
+  remember();
+  refreshSurface();
+  const oldFloor=floor;floor=null;
+  const lowest=Math.min(...activeDirections().map((_,i)=>modelVertex(i)[1]))/(stock.z/2);
+  floor=oldFloor;
+  floor=floor===null?lowest*0.85:null;
+  syncFloor();redraw();
+  status(floor===null?'底の平面化を解除しました。':'底の約15%を平らにしました。');
+};
+get('undo').onclick=()=>{
+  if(stroke)return;
+  if(history.length){let previousDetail;({heights,mask,floor,stock,smoothing,offsets,hole,pockets,voxelMesh,detail:previousDetail}=history.pop());setDetail(previousDetail);syncHole();syncFloor();syncStock();syncSmooth();redraw();status('元に戻しました。')}
+  else status('元に戻せる操作がありません。');
+};
+document.addEventListener('keydown',event=>{
+  if(event.ctrlKey&&event.key.toLowerCase()==='z'){event.preventDefault();get('undo').click()}
+});
+function download(file,name){
+  const url=URL.createObjectURL(file),link=document.createElement('a');
+  link.href=url;link.download=name;link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  status('作品ファイルのダウンロードを開始しました。');
+};
+function makeStl(){
+  refreshSurface();
+  const mesh=activeFaces();
+  const data=new DataView(new ArrayBuffer(84+50*mesh.length));
+  data.setUint32(80,mesh.length,true);
+  const vertices=activeDirections().map((_,i)=>{
+    const [x,y,z]=modelVertex(i);
+    return [x,-z,y];
+  });
+  const base=vertices.reduce((min,vertex)=>Math.min(min,vertex[2]),Infinity);
+  for(const vertex of vertices)vertex[2]-=base;
+  mesh.forEach(([i,j,k],index)=>{
+    const a=vertices[i],b=vertices[j],c=vertices[k];
+    const [ux,uy,uz]=b.map((value,axis)=>value-a[axis]);
+    const [vx,vy,vz]=c.map((value,axis)=>value-a[axis]);
+    const normal=[uy*vz-uz*vy,uz*vx-ux*vz,ux*vy-uy*vx];
+    const length=Math.hypot(...normal)||1;
+    const values=[...normal.map(value=>value/length),...a,...b,...c];
+    values.forEach((value,slot)=>data.setFloat32(84+50*index+4*slot,value,true));
+  });
+  return data.buffer;
+}
+get('stl').onclick=()=>download(new Blob([makeStl()],{type:'model/stl'}),'粘土作品.stl');
+get('save').onclick=()=>{
+  const file=new Blob([JSON.stringify({version:1,heights,mask,floor,stock,smoothing,offsets,hole,pockets,detail})],{type:'application/json'});
+  download(file,'粘土作品.json');
+};
+get('open').onclick=()=>get('file').click();
+get('file').onchange=async event=>{
+  const file=event.target.files[0];
+  event.target.value='';
+  if(!file)return;
+  try{
+    const data=JSON.parse(await file.text());
+    const level=data.detail??"normal";
+    if(!Object.hasOwn(detailLevels,level))throw Error();
+    const [savedRings,savedSides]=detailLevels[level];
+    const count=(savedRings-1)*savedSides+2;
+    if(data.version!==1||!Array.isArray(data.heights)||data.heights.length!==count||
+      !data.heights.every(value=>Number.isFinite(value)&&value>0))throw Error();
+    const savedMask=data.mask??Array(count).fill(0), savedFloor=data.floor??null;
+    if(!Array.isArray(savedMask)||savedMask.length!==count||
+      !savedMask.every(value=>Number.isFinite(value)&&value>=0&&value<=1)||
+      (savedFloor!==null&&(!Number.isFinite(savedFloor)||!Number.isFinite(Math.fround(savedFloor)))))throw Error();
+    const savedStock=data.stock??defaultStock;
+    const savedSmoothing=data.smoothing??0;
+    if(!validStock(savedStock)||!Number.isInteger(savedSmoothing)||savedSmoothing<0||savedSmoothing>8)throw Error();
+    const savedOffsets=data.offsets??Array.from({length:3},()=>Array(count).fill(0));
+    if(!Array.isArray(savedOffsets)||savedOffsets.length!==3||
+      !savedOffsets.every(axis=>Array.isArray(axis)&&axis.length===count&&axis.every(Number.isFinite)))throw Error();
+    const savedHole=data.hole??null;
+    if(savedHole&&!validHole(savedHole,savedStock))throw Error();
+    const savedPockets=data.pockets??[];
+    if(!Array.isArray(savedPockets)||!savedPockets.every(pocket=>pocket&&validHole(pocket,savedStock)&&pocket.depth<savedStock.z)||
+      (savedHole&&savedPockets.length))throw Error();
+    const savedVoxel=data.voxelMesh??null;
+    if(savedVoxel&&!validVoxel(savedVoxel))throw Error();
+    remember();voxelMesh=savedVoxel;setDetail(level);pockets=savedPockets;hole=savedHole;offsets=savedOffsets;smoothing=savedSmoothing;syncSmooth();stock=savedStock;syncStock();heights=data.heights;mask=savedMask;floor=savedFloor;syncHole();syncFloor();redraw();status('作品を開きました。');
+  }catch{status('IWTシステム（笑）で保存した作品ファイルを選んでください。')}
+};
+function validStock(value){
+  return value&&['sphere','box','rod'].includes(value.shape)&&
+    [value.x,value.y,value.z].every(n=>Number.isFinite(n)&&n>=1&&n<=3000)&&
+    (value.shape==='box'||value.x===value.y)&&(value.shape!=='sphere'||value.x===value.z);
+}
+function stockFields(){
+  const shape=get('shape').value;
+  get('widthName').textContent=shape==='box'?'幅':'直径';
+  get('depth').hidden=shape!=='box';
+  get('height').hidden=shape==='sphere';
+  get('heightName').textContent=shape==='rod'?'長さ':'高さ';
+}
+function syncStock(){
+  get('shape').value=stock.shape;
+  get('sx').value=stock.x;get('sy').value=stock.y;get('sz').value=stock.z;
+  stockFields();
+  syncMesh();
+  const label={sphere:'球',box:'角材',rod:'丸棒'}[stock.shape];
+  const dimensions=stock.shape==='sphere'?[stock.x]:stock.shape==='rod'?[stock.x,stock.z]:[stock.x,stock.y,stock.z];
+  get('stockInfo').textContent='使用中の材料 '+label+' '+dimensions.join(' × ')+' mm';
+}
+function validVoxel(mesh){
+  return Array.isArray(mesh.vertices)&&Array.isArray(mesh.faces)&&mesh.vertices.length>0&&
+    (!mesh.editable||(Array.isArray(mesh.mask)&&mesh.mask.length===mesh.vertices.length&&mesh.mask.every(v=>Number.isFinite(v)&&v>=0&&v<=1)))&&mesh.vertices.length<=400000&&mesh.faces.length>0&&mesh.faces.length<=800000&&
+    mesh.vertices.every(v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite))&&
+    mesh.faces.every(f=>Array.isArray(f)&&f.length===3&&f.every(i=>Number.isInteger(i)&&i>=0&&i<mesh.vertices.length));
+}
+function copyLocal(){
+  voxelMesh={...voxelMesh,vertices:voxelMesh.vertices.map(p=>p.slice()),mask:voxelMesh.mask.slice()};
+}
+function refineAt(hit){
+  refineMode=false;get('refine').setAttribute('aria-pressed','false');
+  refreshSurface();
+  const vertices=activeDirections().map((_,i)=>modelVertex(i).slice());
+  const faces=activeFaces().map(face=>face.slice());
+  const protection=voxelMesh?.editable?voxelMesh.mask.slice():vertices.map((_,i)=>sample(mask,i));
+  const radius=Math.max(stock.x,stock.y,stock.z)*Number(get('size').value)/200;
+  const [x,y,z]=hit.world,edges=new Map();
+  for(let i=0;i<faces.length;i++)for(let k=0;k<3;k++){
+    const a=faces[i][k],b=faces[i][(k+1)%3],p=vertices[a],q=vertices[b];
+    const distance=Math.hypot((p[0]+q[0])/2-x,(p[1]+q[1])/2-y,(p[2]+q[2])/2-z);
+    const length=Math.hypot(...p.map((v,k)=>v-q[k]));
+    if(length<radius*0.45||(distance>radius&&!(hit.face?.includes(a)&&hit.face.includes(b))))continue;
+    const key=Math.min(a,b)+','+Math.max(a,b);
+    if(!edges.has(key))edges.set(key,{a,b,length,faces:[]});
+    edges.get(key).faces.push(i);
+  }
+  const used=new Set(),added=[];
+  for(const edge of [...edges.values()].sort((a,b)=>b.length-a.length)){
+    if(added.length>=128||faces.length+added.length+2>30000)break;
+    if(edge.faces.length!==2||edge.faces.some(i=>used.has(i)))continue;
+    const {a,b}=edge,mid=vertices.push(vertices[a].map((v,k)=>(v+vertices[b][k])/2))-1;
+    protection.push((protection[a]+protection[b])/2);
+    for(const i of edge.faces){
+      const face=faces[i],k=face.findIndex((v,j)=>(v===a&&face[(j+1)%3]===b)||(v===b&&face[(j+1)%3]===a));
+      const p=face[k],q=face[(k+1)%3],r=face[(k+2)%3];
+      faces[i]=[p,mid,r];added.push([mid,q,r]);used.add(i);
+    }
+  }
+  if(!added.length){status('分割できる長い辺がないか、ポリゴンの上限に達しています。');return}
+  remember();voxelMesh={vertices,faces:faces.concat(added),mask:protection,editable:true};
+  syncMesh();redraw();status(added.length+'枚の三角形を追加しました。');
+}
+get('refine').onclick=()=>{
+  if(stroke||holeMesh||(voxelMesh&&!voxelMesh.editable))return;
+  if(inputMode==='tablet'&&touchAction==='rotate')setTouchAction('sculpt');
+  refineMode=!refineMode;get('refine').setAttribute('aria-pressed',String(refineMode));
+  status(refineMode?'細かくしたい場所をクリックしてください。':'');
+};
+function brushLocal(hit,pressure){
+  if(tool===4){status('部分分割後は「盛る」「削る」「ならす」が使えます。');return}
+  const {vertices,faces,mask}=voxelMesh, center=hit.world;
+  const radius=Math.max(stock.x,stock.y,stock.z)*Number(get('size').value)/200;
+  const strength=(5+(Number(get('power').value)-5)*35/95)/100*pressure;
+  const view=[-Math.cos(pitch)*Math.sin(yaw),Math.sin(pitch),Math.cos(pitch)*Math.cos(yaw)];
+  const before=tool===0?vertices.map(p=>p.slice()):vertices;
+  const adjacent=tool===0?vertices.map(()=>new Set()):null;
+  if(adjacent)for(const face of faces)for(const i of face)for(const j of face)if(i!==j)adjacent[i].add(j);
+  for(let i=0;i<vertices.length;i++){
+    const p=before[i],d=Math.hypot(...p.map((v,k)=>v-center[k]));
+    const reflected=mirror?Math.hypot(p[0]+center[0],p[1]-center[1],p[2]-center[2]):Infinity;
+    const distance=Math.min(d,reflected);
+    if(distance>=radius)continue;
+    const t=1-distance/radius,weight=t*t*(3-2*t)*strength;
+    if(tool===2||tool===3){mask[i]=Math.max(0,Math.min(1,mask[i]+(tool===2?weight:-weight)));continue}
+    const influence=weight*(1-mask[i]);
+    if(tool===0){
+      if(!adjacent[i].size)continue;
+      vertices[i]=p.map((v,k)=>{
+        let sum=0;for(const j of adjacent[i])sum+=before[j][k];
+        return v+(sum/adjacent[i].size-v)*influence;
+      });
+      continue;
+    }
+    const length=Math.hypot(...p)||1;
+    const axis=stock.shape==='sphere'?p.map(v=>v/length):stock.shape==='rod'?
+      rodAxis([p[0]/stock.x,p[1]/stock.z,p[2]/stock.y]):view.map((v,k)=>k===0&&reflected<d?-v:v);
+    vertices[i]=p.map((v,k)=>v+axis[k]*tool*radius*0.35*influence);
+  }
+}
+function makeEnvelopeIndex(vertices,mesh){
+  const triangles=mesh.map(face=>{
+    const [a,b,c]=face.map(i=>vertices[i]);
+    const low=a.map((value,k)=>Math.min(value,b[k],c[k]));
+    const high=a.map((value,k)=>Math.max(value,b[k],c[k]));
+    return {a,b,c,low,high};
+  });
+  function build(items){
+    const low=[Infinity,Infinity,Infinity],high=[-Infinity,-Infinity,-Infinity];
+    for(const item of items)for(let k=0;k<3;k++){
+      low[k]=Math.min(low[k],item.low[k]);high[k]=Math.max(high[k],item.high[k]);
+    }
+    if(items.length<=12)return {low,high,items};
+    const span=high.map((value,k)=>value-low[k]);
+    const axis=span.indexOf(Math.max(...span));
+    items.sort((a,b)=>a.low[axis]+a.high[axis]-b.low[axis]-b.high[axis]);
+    const middle=items.length>>1;
+    return {low,high,left:build(items.slice(0,middle)),right:build(items.slice(middle))};
+  }
+  return build(triangles);
+}
+function envelopeDistance(node,direction,best=0){
+  let near=best,far=Infinity;
+  for(let k=0;k<3;k++){
+    if(Math.abs(direction[k])<1e-12){
+      if(node.low[k]>1e-9||node.high[k]<-1e-9)return best;
+      continue;
+    }
+    const a=(node.low[k]-1e-9)/direction[k],b=(node.high[k]+1e-9)/direction[k];
+    near=Math.max(near,Math.min(a,b));far=Math.min(far,Math.max(a,b));
+    if(near>far)return best;
+  }
+  if(!node.items)return envelopeDistance(node.right,direction,envelopeDistance(node.left,direction,best));
+  const [dx,dy,dz]=direction;
+  for(const {a,b,c} of node.items){
+    const [ux,uy,uz]=b.map((value,k)=>value-a[k]);
+    const [vx,vy,vz]=c.map((value,k)=>value-a[k]);
+    const px=dy*vz-dz*vy,py=dz*vx-dx*vz,pz=dx*vy-dy*vx;
+    const det=ux*px+uy*py+uz*pz;
+    if(Math.abs(det)<1e-12)continue;
+    const u=-(a[0]*px+a[1]*py+a[2]*pz)/det;
+    if(u< -1e-8||u>1+1e-8)continue;
+    const qx=a[2]*uy-a[1]*uz,qy=a[0]*uz-a[2]*ux,qz=a[1]*ux-a[0]*uy;
+    const v=(dx*qx+dy*qy+dz*qz)/det;
+    if(v< -1e-8||u+v>1+1e-8)continue;
+    best=Math.max(best,(vx*qx+vy*qy+vz*qz)/det);
+  }
+  return best;
+}
+get('rewrap').onclick=()=>{
+  if(stroke||holeMesh||(voxelMesh&&!voxelMesh.editable))return;
+  refreshSurface();
+  const index=makeEnvelopeIndex(activeDirections().map((_,i)=>modelVertex(i)),activeFaces());
+  const envelope=points.map((_,i)=>{
+    const base=stockVertex(i), length=Math.hypot(...base);
+    return envelopeDistance(index,base.map(value=>value/length))/length;
+  });
+  if(envelope.some(value=>!Number.isFinite(value)||value<=0)){
+    status('中心から全方向の外面を拾えないため、包み直せませんでした。');return;
+  }
+  remember();
+  if(voxelMesh?.editable)mask=points.map(()=>0);
+  voxelMesh=null;heights=envelope;offsets=emptyOffsets();pockets=[];smoothing=0;
+  syncMesh();syncSmooth();redraw();
+  status('外側の形で包み直しました。元に戻すと前の形に戻れます。');
+};
+function syncMesh(){
+  get('meshDetail').value=detail;
+  get('meshDetail').disabled=!!(holeMesh||voxelMesh);
+  get('flat').disabled=!!(holeMesh||voxelMesh);
+  get('smooth').disabled=!!voxelMesh;
+  get('rewrap').disabled=!!(holeMesh||(voxelMesh&&!voxelMesh.editable));
+  get('refine').disabled=!!(holeMesh||(voxelMesh&&!voxelMesh.editable));
+  get('meshCount').textContent=activeFaces().length.toLocaleString('ja-JP')+' 三角形';
+}
+get('meshDetail').onchange=()=>{
+  const level=get('meshDetail').value;
+  if(stroke||holeMesh||voxelMesh||!Object.hasOwn(detailLevels,level)||level===detail){syncMesh();return}
+  remember();
+  const oldRings=rings,oldSides=sides,oldBottom=bottom;
+  setDetail(level);
+  const weights=points.map(point=>sampleWeights(point,oldRings,oldSides,oldBottom));
+  const transfer=values=>weights.map(entries=>{
+    const base=values[entries[0][0]];
+    return entries.reduce((sum,[i,w])=>sum+(values[i]-base)*w,base);
+  });
+  heights=transfer(heights);mask=transfer(mask);offsets=offsets.map(transfer);
+  syncMesh();redraw();
+  status('ポリゴンの細かさを変更しました。');
+};
+get('shape').onchange=stockFields;
+get('applyStock').onclick=()=>{
+  if(stroke)return;
+  const shape=get('shape').value,x=Number(get('sx').value);
+  const material={shape,x,y:shape==='box'?Number(get('sy').value):x,z:shape==='sphere'?x:Number(get('sz').value)};
+  if(!validStock(material)){status('寸法は1〜3000 mmで入力してください。');return}
+  remember();stock=material;voxelMesh=null;hole=null;pockets=[];syncHole();offsets=emptyOffsets();heights=points.map(()=>1);mask=points.map(()=>0);floor=null;
+  smoothing=0;syncSmooth();viewMode="front";yaw=0;pitch=0;zoom=1;syncView();
+  syncFloor();syncStock();redraw();
+  status('新しい材料を用意しました。元に戻すと前の作品に戻れます。');
+};
+function validHole(value,material){
+  return material.shape==='box'&&[value.x,value.z,value.radius,value.depth].every(Number.isFinite)&&
+    value.radius>0&&value.depth>0&&value.depth<=material.z&&
+    Math.abs(value.x)+value.radius<material.x/2&&Math.abs(value.z)+value.radius<material.y/2;
+}
+function drillMesh(){
+  const {x,z,radius,depth}=hole, a=stock.x/2,b=stock.y/2,top=stock.z/2;
+  const angles=Array.from({length:64},(_,i)=>i*Math.PI/32);
+  for(const px of [-a,a])for(const pz of [-b,b]){
+    const angle=(Math.atan2(z-pz,px-x)+2*Math.PI)%(2*Math.PI);
+    if(!angles.some(value=>Math.abs(value-angle)<1e-10))angles.push(angle);
+  }
+  angles.sort((a,b)=>a-b);
+  const vertices=[],faces=[], n=angles.length;
+  const rings=Array.from({length:4},()=>[]);
+  for(const angle of angles){
+    const dx=Math.cos(angle),dz=-Math.sin(angle);
+    const distance=Math.min(dx>0?(a-x)/dx:(-a-x)/dx,dz>0?(b-z)/dz:(-b-z)/dz);
+    const px=x+distance*dx,pz=z+distance*dz;
+    rings[0].push([px,top,pz]);rings[1].push([x+radius*dx,top,z+radius*dz]);
+    rings[2].push([x+radius*dx,top-depth,z+radius*dz]);rings[3].push([px,-top,pz]);
+  }
+  for(const ring of rings)vertices.push(...ring);
+  const bottomCenter=vertices.push([x,-top,z])-1;
+  const holeCenter=vertices.push([x,top-depth,z])-1;
+  for(let i=0;i<n;i++){
+    const j=(i+1)%n;
+    faces.push([i,j,i+n],[j,j+n,i+n]);
+    faces.push([i,i+3*n,j],[j,i+3*n,j+3*n]);
+    faces.push([i+n,j+n,i+2*n],[j+n,j+2*n,i+2*n]);
+    if(depth===stock.z)faces.push([i+3*n,i+2*n,j+3*n],[j+3*n,i+2*n,j+2*n]);
+    else faces.push([j+3*n,i+3*n,bottomCenter],[i+2*n,j+2*n,holeCenter]);
+  }
+  return {vertices,faces};
+}
+function syncHole(){
+  holeMesh=hole?drillMesh():null;
+  syncMesh();
+}
+const viewButtons=document.querySelectorAll('[data-view]');
+function syncView(){
+  for(const button of viewButtons)button.setAttribute('aria-pressed',String(button.dataset.view===viewMode));
+}
+for(const button of viewButtons)button.onclick=()=>{
+  viewMode=button.dataset.view;
+  yaw=viewMode==='side'?Math.PI/2:0;
+  pitch=viewMode==='top'?Math.PI/2:0;
+  zoom=1;syncView();redraw();
+};
+get('size').oninput=()=>{get('sizeValue').value=get('size').value;redraw()};
+get('power').oninput=()=>{get('powerValue').value=get('power').value+'%'};
+get('guides').onchange=redraw;
+get('wire').onchange=redraw;
+get('invertMask').onclick=()=>{if(!stroke){remember();if(voxelMesh?.editable){copyLocal();voxelMesh.mask=voxelMesh.mask.map(value=>1-value)}else mask=mask.map(value=>1-value);redraw()}};
+get('clearMask').onclick=()=>{if(!stroke){remember();if(voxelMesh?.editable){copyLocal();voxelMesh.mask.fill(0)}else mask.fill(0);redraw()}};
+function syncSmooth(){get('smooth').value=smoothing;get('smoothValue').value=smoothing}
+get('smooth').oninput=()=>{
+  smoothing=Number(get('smooth').value);syncSmooth();redraw();
+};
+let savedInputMode;
+try{savedInputMode=localStorage.getItem('iwtInputMode')}catch{}
+inputMode=['mouse','tablet'].includes(savedInputMode)?savedInputMode:
+  (matchMedia('(pointer: coarse)').matches?'tablet':'mouse');
+syncInput();syncView();syncStock();
+draw();
+new ResizeObserver(redraw).observe(canvas);
+</script></body></html>
